@@ -48,7 +48,6 @@ jobs:
       DATABASE_URL: postgresql+psycopg://asyncforge:ci_only_password@127.0.0.1:5432/asyncforge_test
       ASYNCFORGE_API_KEY: ci_only_test_secret_01234567890123456789
       ASYNCFORGE_OPERATOR_KEY: ci_only_operator_secret_01234567890123
-      ASYNCFORGE_TEST_CONTAINER_ID: ${{ job.services.postgres.id }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -73,6 +72,8 @@ jobs:
       - name: Run live HTTP and independent worker acceptance
         run: python tests/http_acceptance.py
       - name: Stop and restart ONLY the isolated PostgreSQL service container
+        env:
+          ASYNCFORGE_TEST_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: pytest -q -rs tests/test_outage_manual.py
       - name: Create isolated benchmark database (only when explicitly requested)
         if: ${{ inputs.benchmark }}
