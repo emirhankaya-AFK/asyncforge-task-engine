@@ -130,7 +130,7 @@ def main():
     parser.add_argument("--grace", type=float, default=10)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    Worker(worker_id=args.worker_id, queue=args.queue, max_idle=None, grace=args.grace).run(max_idle=args.max_idle)
+    Worker(worker_id=args.worker_id, queue=args.queue, grace=args.grace).run(max_idle=args.max_idle)
 
 
 if __name__ == "__main__":
