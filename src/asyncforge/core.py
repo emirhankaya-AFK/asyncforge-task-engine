@@ -90,7 +90,15 @@ def complete(job_id, worker_id, generation, result=None, error_code=None, retrya
         if j is None or j.state != "running" or j.lease_owner != worker_id or j.lease_generation != generation:
             return False
         # Database clock is authoritative; lease/deadline expiration refuses late success.
-        valid = db.scalar(select(Job.id).where(owned(job_id, worker_id, generation)))
+        # A timeout is reported after its deadline by design. Accept only the
+        # current, still-leased owner for TASK_TIMEOUT; late success remains fenced.
+        if error_code == "TASK_TIMEOUT":
+            valid = db.scalar(select(Job.id).where(
+                Job.id == job_id, Job.state == "running", Job.lease_owner == worker_id,
+                Job.lease_generation == generation, Job.lease_until > func.now(),
+            ))
+        else:
+            valid = db.scalar(select(Job.id).where(owned(job_id, worker_id, generation)))
         if valid is None:
             return False
         a = db.scalar(select(Attempt).where(Attempt.job_id == job_id, Attempt.attempt_no == j.attempts))
