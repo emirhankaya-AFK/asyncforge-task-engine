@@ -1,7 +1,8 @@
-name: AsyncForge isolated acceptance (manual, no production secrets)
-# Manual-only while the repository is private to avoid consuming billable minutes
-# until the owner confirms a zero-spend Actions budget and available quota.
+name: AsyncForge isolated acceptance (no production secrets)
+# Public repository: standard ubuntu-latest runners are free. Trigger once on push.
 "on":
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       benchmark:
