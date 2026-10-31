@@ -1,0 +1,101 @@
+name: AsyncForge isolated acceptance (manual, no production secrets)
+# Manual-only while the repository is private to avoid consuming billable minutes
+# until the owner confirms a zero-spend Actions budget and available quota.
+"on":
+  workflow_dispatch:
+    inputs:
+      benchmark:
+        description: 'Run the 1000-job 1/2/4-worker benchmark after acceptance passes (extra runner minutes)'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: asyncforge-acceptance
+  cancel-in-progress: false
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev]'
+      - run: ruff check .
+      - run: python -m compileall -q src tests migrations benchmarks
+      - run: pytest -q tests/test_unit.py
+  postgres-acceptance:
+    needs: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: asyncforge_test
+          POSTGRES_USER: asyncforge
+          POSTGRES_PASSWORD: ci_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U asyncforge -d asyncforge_test"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+psycopg://asyncforge:ci_only_password@127.0.0.1:5432/asyncforge_test
+      ASYNCFORGE_API_KEY: ci_only_test_secret_01234567890123456789
+      ASYNCFORGE_OPERATOR_KEY: ci_only_operator_secret_01234567890123
+      ASYNCFORGE_TEST_CONTAINER_ID: ${{ job.services.postgres.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev]'
+      - name: Assert isolated PostgreSQL is connected before any test
+        run: |
+          python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+          with create_engine(os.environ['DATABASE_URL']).connect() as c:
+              assert c.scalar(text('SELECT current_database()')) == 'asyncforge_test'
+          print('Real isolated PostgreSQL reachable')
+          PY
+      - name: Apply migration to empty PostgreSQL and inspect actual schema
+        run: |
+          alembic upgrade head
+          python tests/verify_migration.py
+      - name: Run all real PostgreSQL integration tests; no skip fallback
+        run: pytest -q -rs tests/test_integration.py
+      - name: Run live HTTP and independent worker acceptance
+        run: python tests/http_acceptance.py
+      - name: Stop and restart ONLY the isolated PostgreSQL service container
+        run: pytest -q -rs tests/test_outage_manual.py
+      - name: Create isolated benchmark database (only when explicitly requested)
+        if: ${{ inputs.benchmark }}
+        run: |
+          python - <<'PYCODE'
+          import psycopg
+          with psycopg.connect('host=127.0.0.1 port=5432 dbname=postgres user=asyncforge password=ci_only_password', autocommit=True) as c:
+              c.execute('CREATE DATABASE asyncforge_bench')
+          print('Created isolated asyncforge_bench database')
+          PYCODE
+      - name: Migrate isolated benchmark schema
+        if: ${{ inputs.benchmark }}
+        env:
+          DATABASE_URL: postgresql+psycopg://asyncforge:ci_only_password@127.0.0.1:5432/asyncforge_bench
+        run: alembic upgrade head
+      - name: Benchmark 1000 identical tasks with 1, 2 and 4 independent workers
+        if: ${{ inputs.benchmark }}
+        env:
+          DATABASE_URL: postgresql+psycopg://asyncforge:ci_only_password@127.0.0.1:5432/asyncforge_bench
+        run: python benchmarks/measure.py --count 1000 --workers 1 2 4 --output benchmarks/results/ci.json
+      - name: Keep measured benchmark artifact (never fabricate values)
+        if: ${{ inputs.benchmark }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: asyncforge-benchmark
+          path: benchmarks/results/ci.json
+          if-no-files-found: error

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "asyncforge-task-engine"
+version = "0.1.0"
+description = "Durable PostgreSQL task engine with fenced worker leases"
+requires-python = ">=3.12"
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "sqlalchemy>=2.0,<3", "psycopg[binary]>=3.2,<4", "alembic>=1.13,<2", "pydantic>=2.8,<3"]
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "httpx>=0.27,<1", "ruff>=0.9,<1"]
+[project.scripts]
+asyncforge-worker = "asyncforge.worker:main"
+[tool.setuptools.packages.find]
+where = ["src"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
